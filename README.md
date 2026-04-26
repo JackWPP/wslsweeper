@@ -63,13 +63,40 @@ wslsweeper --host 0.0.0.0        # 监听地址（默认 127.0.0.1）
 wslsweeper --no-browser          # 不自动打开浏览器
 ```
 
+### 常见问题
+
+**Q: 安装后提示 `wslsweeper: command not found`**
+
+Linux/WSL 上 `pip install` 默认将命令行脚本安装到 `~/.local/bin`，但该目录可能不在系统 `PATH` 中。解决方法：
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+wslsweeper
+```
+
+也可以直接通过 Python 模块方式启动（无需配置 PATH）：
+
+```bash
+python -m wslsweeper
+```
+
+**Q: `pip install -e .` 提示 editable install 不支持**
+
+请确保 pip 版本不低于 22.0（支持 PEP 660）：
+
+```bash
+pip install --upgrade pip
+pip install -e .
+```
+
 ## 🛠️ 开发
 
 ### 环境要求
 
 - Python >= 3.9
+- pip >= 22.0（支持 PEP 660 editable install）
 - Node.js >= 18
-- uv（Python 包管理）
+- uv（Python 包管理，可选）
 
 ### 环境搭建
 
