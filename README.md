@@ -42,7 +42,7 @@ pip install wslsweeper
 或从源码安装：
 
 ```bash
-git clone <repo>
+git clone https://github.com/JackWPP/wslsweeper.git
 cd wslsweeper
 pip install -e .
 ```
