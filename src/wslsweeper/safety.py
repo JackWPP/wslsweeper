@@ -2,13 +2,11 @@ import hashlib
 import hmac
 import os
 import secrets
-import stat
 import time
-from pathlib import Path
 
 PROTECTED_PATHS = frozenset({
     "/usr", "/etc", "/bin", "/sbin", "/lib", "/lib32", "/lib64",
-    "/boot", "/proc", "/sys", "/dev", "/root", "/snap",
+    "/boot", "/proc", "/sys", "/dev", "/snap",
 })
 
 _SERVER_SECRET: str | None = None
@@ -28,6 +26,14 @@ def is_protected_path(path: str) -> bool:
         if resolved == protected or resolved.startswith(protected + "/"):
             return True
     return False
+
+
+def needs_sudo_for_path(path: str) -> bool:
+    if os.geteuid() == 0:
+        return False
+    real = os.path.realpath(path)
+    parent = os.path.dirname(real)
+    return not os.access(parent, os.W_OK)
 
 
 def generate_confirm_token(path: str) -> str:
@@ -55,11 +61,12 @@ def verify_confirm_token(path: str, token: str) -> bool:
     return hmac.compare_digest(expected_sig, received_sig)
 
 
-def validate_deletion(path: str) -> tuple[bool, str | None, str | None]:
-    """Returns (is_deletable, warning_message, confirm_token)."""
+def validate_deletion(path: str) -> tuple[bool, str | None, str | None, bool]:
+    """Returns (is_deletable, warning_message, confirm_token, needs_sudo)."""
     if not os.path.exists(path):
-        return False, f"路径 {path} 不存在", None
+        return False, f"路径 {path} 不存在", None, False
     if is_protected_path(path):
-        return False, f"路径 {path} 受系统保护，无法删除", None
+        return False, f"路径 {path} 受系统保护，无法删除", None, False
+    needs_sudo = needs_sudo_for_path(path)
     token = generate_confirm_token(path)
-    return True, f"即将删除: {path}。此操作不可撤销。", token
+    return True, f"即将删除: {path}。此操作不可撤销。", token, needs_sudo

@@ -1,4 +1,4 @@
-import type { ScanResponse, ScanUpdate, DiskInfo, MountInfo, ValidateResponse, DeleteResponse } from '../types';
+import type { ScanResponse, ScanUpdate, DiskInfo, MountInfo, ValidateResponse, DeleteResponse, CleanupSuggestion } from '../types';
 
 const BASE = '';
 
@@ -26,12 +26,24 @@ export async function validatePath(path: string): Promise<ValidateResponse> {
   return res.json();
 }
 
-export async function deletePath(path: string, token: string): Promise<DeleteResponse> {
+export async function deletePath(path: string, token: string, sudoPassword?: string): Promise<DeleteResponse> {
   const res = await fetch(`${BASE}/api/delete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, confirm_token: token }),
+    body: JSON.stringify({ path, confirm_token: token, sudo_password: sudoPassword }),
   });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function getCleanupSuggestions(): Promise<CleanupSuggestion[]> {
+  const res = await fetch(`${BASE}/api/cleanup-suggestions`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function getContextCleanup(path: string): Promise<CleanupSuggestion[]> {
+  const res = await fetch(`${BASE}/api/context-cleanup?path=${encodeURIComponent(path)}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

@@ -53,6 +53,7 @@ class MountInfo(BaseModel):
 class DeleteRequest(BaseModel):
     path: str
     confirm_token: str
+    sudo_password: str | None = None
 
 
 class DeleteResponse(BaseModel):
@@ -66,5 +67,16 @@ class ValidateResponse(BaseModel):
     exists: bool
     is_protected: bool
     is_deletable: bool
+    needs_sudo: bool = False
     confirm_token: str | None = None
     warning: str | None = None
+
+
+class CleanupSuggestion(BaseModel):
+    path: str
+    label: str
+    name: str
+    icon: str
+    size: int
+    age_days: float
+    reason: str

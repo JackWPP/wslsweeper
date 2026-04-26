@@ -52,6 +52,7 @@ export interface ValidateResponse {
   exists: boolean;
   is_protected: boolean;
   is_deletable: boolean;
+  needs_sudo: boolean;
   confirm_token: string | null;
   warning: string | null;
 }
@@ -60,4 +61,14 @@ export interface DeleteResponse {
   success: boolean;
   freed_bytes: number;
   message: string;
+}
+
+export interface CleanupSuggestion {
+  path: string;
+  label: string;
+  name: string;
+  icon: string;
+  size: number;
+  age_days: number;
+  reason: string;
 }

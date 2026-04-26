@@ -4,6 +4,7 @@ import stat
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 
+from wslsweeper.cache import get_cached, set_cached
 from wslsweeper.safety import is_protected_path
 
 _executor = ThreadPoolExecutor(max_workers=4)
@@ -39,12 +40,12 @@ def _calc_dir_size(path: str) -> int:
                 except (OSError, PermissionError):
                     pass
 
-            # prune mount points
             i = 0
             while i < len(dirnames):
                 sub = os.path.join(dirpath, dirnames[i])
                 try:
-                    if os.lstat(sub).st_dev != root_dev:
+                    sub_dev = os.lstat(sub).st_dev
+                    if sub_dev != root_dev or sub.startswith("/mnt"):
                         dirnames.pop(i)
                         continue
                 except (OSError, PermissionError):
@@ -72,6 +73,8 @@ def _scan_skeleton(path: str) -> dict:
                 "scan_time_ms": 0, "error": "目录不存在"}
 
     for entry in entries:
+        if entry.path.startswith("/mnt"):
+            continue
         try:
             st = entry.stat(follow_symlinks=False)
             is_dir = entry.is_dir(follow_symlinks=False)
@@ -118,12 +121,21 @@ def _scan_skeleton(path: str) -> dict:
 
 
 async def scan_directory_progressive(path: str):
-    """
-    异步生成器，yield 扫描进度事件：
-    - {"type": "skeleton", "data": ScanResponse}       骨架数据（毫秒级返回）
-    - {"type": "update", "path": ..., "recursive_size": ..., "total_recursive_size": ...}  单个目录完成
-    - {"type": "done"}                                    全部完成
-    """
+    cached = get_cached(path)
+    if cached:
+        yield {"type": "skeleton", "data": cached}
+        for c in cached["children"]:
+            if c["is_dir"]:
+                yield {
+                    "type": "update",
+                    "path": c["path"],
+                    "name": c["name"],
+                    "recursive_size": c["recursive_size"],
+                    "total_recursive_size": cached["total_recursive_size"],
+                }
+        yield {"type": "done"}
+        return
+
     skeleton = _scan_skeleton(path)
     yield {"type": "skeleton", "data": skeleton}
 
@@ -142,11 +154,21 @@ async def scan_directory_progressive(path: str):
             "total_recursive_size": total_recursive,
         }
 
+    for c in skeleton["children"]:
+        if not c["is_dir"]:
+            c["recursive_size"] = c["size"]
+
+    skeleton["total_recursive_size"] = sum(c["recursive_size"] for c in skeleton["children"])
+    skeleton["children"].sort(key=lambda x: (not x["is_dir"], -x["recursive_size"]))
+    set_cached(path, skeleton)
     yield {"type": "done"}
 
 
 def _sync_scan(path: str) -> dict:
-    """阻塞式完整扫描（保留旧 API 兼容）。"""
+    cached = get_cached(path)
+    if cached:
+        return cached
+
     children = []
     total_size = 0
     start = time.monotonic()
@@ -163,6 +185,8 @@ def _sync_scan(path: str) -> dict:
                 "scan_time_ms": 0, "error": "目录不存在"}
 
     for entry in entries:
+        if entry.path.startswith("/mnt"):
+            continue
         try:
             st = entry.stat(follow_symlinks=False)
             is_dir = entry.is_dir(follow_symlinks=False)
@@ -217,7 +241,10 @@ def _sync_scan(path: str) -> dict:
             dir_path = futures[future]
             future.cancel()
             try:
-                c["recursive_size"] = _calc_dir_size(dir_path)
+                for c in children:
+                    if c["path"] == dir_path and c["is_dir"]:
+                        c["recursive_size"] = _calc_dir_size(dir_path)
+                        break
             except Exception:
                 pass
 
@@ -236,7 +263,7 @@ def _sync_scan(path: str) -> dict:
     children.sort(key=lambda x: (not x["is_dir"], -x["recursive_size"]))
 
     elapsed = (time.monotonic() - start) * 1000
-    return {
+    result = {
         "path": path,
         "total_size": total_size,
         "total_recursive_size": total_recursive_size,
@@ -244,6 +271,8 @@ def _sync_scan(path: str) -> dict:
         "is_protected": is_protected_path(path),
         "scan_time_ms": round(elapsed, 1),
     }
+    set_cached(path, result)
+    return result
 
 
 async def scan_directory(path: str) -> dict:

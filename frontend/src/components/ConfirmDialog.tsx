@@ -1,22 +1,31 @@
 import { useState, useRef, useEffect } from 'react';
-import { AlertTriangle, Trash2 } from 'lucide-react';
+import { AlertTriangle, Trash2, Lock } from 'lucide-react';
 
 interface Props {
   message: string;
   itemName: string;
+  needsSudo?: boolean;
   loading?: boolean;
-  onConfirm: () => void;
+  onConfirm: (sudoPassword?: string) => void;
   onCancel: () => void;
 }
 
-export function ConfirmDialog({ message, itemName, loading, onConfirm, onCancel }: Props) {
+export function ConfirmDialog({ message, itemName, needsSudo, loading, onConfirm, onCancel }: Props) {
   const [input, setInput] = useState('');
+  const [sudoInput, setSudoInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const sudoRef = useRef<HTMLInputElement>(null);
   const matched = input === itemName;
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (needsSudo && sudoRef.current) {
+      sudoRef.current.focus();
+    } else {
+      inputRef.current?.focus();
+    }
+  }, [needsSudo]);
+
+  const canConfirm = matched && (!needsSudo || sudoInput.length > 0);
 
   return (
     <div style={{
@@ -34,7 +43,7 @@ export function ConfirmDialog({ message, itemName, loading, onConfirm, onCancel 
         border: '1px solid var(--border-light)',
         borderRadius: 'var(--radius-lg)',
         padding: '24px 28px',
-        maxWidth: 420,
+        maxWidth: 440,
         width: '90%',
         boxShadow: 'var(--shadow-lg)',
       }}>
@@ -73,15 +82,54 @@ export function ConfirmDialog({ message, itemName, loading, onConfirm, onCancel 
             fontSize: 13,
             fontFamily: 'monospace',
             outline: 'none',
-            marginBottom: 16,
+            marginBottom: needsSudo ? 0 : 16,
             transition: 'border-color var(--transition)',
             boxSizing: 'border-box',
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && matched) onConfirm();
+            if (e.key === 'Enter' && canConfirm) onConfirm(needsSudo ? sudoInput : undefined);
             if (e.key === 'Escape') onCancel();
           }}
         />
+
+        {needsSudo && (
+          <div style={{ marginBottom: 16, marginTop: 12 }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              marginBottom: 8,
+              fontSize: 12,
+              color: 'var(--accent-amber)',
+            }}>
+              <Lock size={13} />
+              此操作需要管理员权限，请输入 sudo 密码：
+            </div>
+            <input
+              ref={sudoRef}
+              type="password"
+              value={sudoInput}
+              onChange={(e) => setSudoInput(e.target.value)}
+              placeholder="sudo 密码"
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: `1px solid ${sudoInput.length > 0 ? 'var(--accent-green)' : 'var(--border-light)'}`,
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                fontSize: 13,
+                outline: 'none',
+                transition: 'border-color var(--transition)',
+                boxSizing: 'border-box',
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && canConfirm) onConfirm(sudoInput);
+                if (e.key === 'Escape') onCancel();
+              }}
+            />
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button
@@ -101,15 +149,15 @@ export function ConfirmDialog({ message, itemName, loading, onConfirm, onCancel 
             取消
           </button>
           <button
-            onClick={onConfirm}
-            disabled={!matched || loading}
+            onClick={() => onConfirm(needsSudo ? sudoInput : undefined)}
+            disabled={!canConfirm || loading}
             style={{
               padding: '8px 16px',
               border: 'none',
               borderRadius: 'var(--radius-sm)',
-              background: matched ? 'var(--accent-red)' : 'var(--bg-tertiary)',
-              color: matched ? '#fff' : 'var(--text-muted)',
-              cursor: matched && !loading ? 'pointer' : 'not-allowed',
+              background: canConfirm ? 'var(--accent-red)' : 'var(--bg-tertiary)',
+              color: canConfirm ? '#fff' : 'var(--text-muted)',
+              cursor: canConfirm && !loading ? 'pointer' : 'not-allowed',
               fontSize: 13,
               display: 'flex',
               alignItems: 'center',

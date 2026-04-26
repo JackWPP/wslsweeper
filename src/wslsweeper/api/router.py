@@ -2,11 +2,13 @@ import asyncio
 import json
 import os
 import shutil
+import subprocess
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from wslsweeper.api.schemas import (
+    CleanupSuggestion,
     DeleteRequest,
     DeleteResponse,
     DiskInfo,
@@ -14,7 +16,13 @@ from wslsweeper.api.schemas import (
     ScanResponse,
     ValidateResponse,
 )
-from wslsweeper.safety import is_protected_path, validate_deletion, verify_confirm_token
+from wslsweeper.cache import invalidate
+from wslsweeper.safety import (
+    is_protected_path,
+    needs_sudo_for_path,
+    validate_deletion,
+    verify_confirm_token,
+)
 from wslsweeper.scanner import scan_directory, scan_directory_progressive
 
 router = APIRouter()
@@ -80,7 +88,9 @@ async def mounts():
                 device, mount_point = parts[0], parts[1]
                 if device in seen_devices:
                     continue
-                if not mount_point.startswith("/mnt") and mount_point != "/":
+                if mount_point.startswith("/mnt"):
+                    continue
+                if mount_point != "/":
                     continue
                 seen_devices.add(device)
                 try:
@@ -147,10 +157,11 @@ async def validate(path: str):
         except OSError:
             pass
 
-    is_deletable, warning, token = validate_deletion(path)
+    is_deletable, warning, token, needs_sudo = validate_deletion(path)
     return ValidateResponse(
         path=path, exists=True, is_protected=False,
-        is_deletable=is_deletable, confirm_token=token, warning=warning,
+        is_deletable=is_deletable, needs_sudo=needs_sudo,
+        confirm_token=token, warning=warning,
     )
 
 
@@ -185,12 +196,46 @@ async def delete(req: DeleteRequest):
         else:
             os.remove(req.path)
     except PermissionError:
-        raise HTTPException(status_code=403, detail="权限不足，无法删除")
+        if req.sudo_password:
+            try:
+                proc = subprocess.run(
+                    ["sudo", "-S", "rm", "-rf", req.path],
+                    input=req.sudo_password + "\n",
+                    text=True,
+                    capture_output=True,
+                    timeout=30,
+                )
+                if proc.returncode == 0:
+                    invalidate(os.path.dirname(req.path))
+                    return DeleteResponse(
+                        success=True,
+                        freed_bytes=size,
+                        message=f"已成功删除: {req.path}",
+                    )
+                else:
+                    raise HTTPException(status_code=403, detail="sudo 密码错误或权限不足")
+            except subprocess.TimeoutExpired:
+                raise HTTPException(status_code=500, detail="sudo 操作超时")
+        else:
+            raise HTTPException(status_code=403, detail="权限不足，需要管理员权限")
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"删除失败: {e}")
 
+    invalidate(os.path.dirname(req.path))
     return DeleteResponse(
         success=True,
         freed_bytes=size,
         message=f"已成功删除 {'目录' if is_dir else '文件'}: {req.path}",
     )
+
+
+@router.get("/cleanup-suggestions", response_model=list[CleanupSuggestion])
+async def cleanup_suggestions():
+    from wslsweeper.cleanup import find_cleanup_suggestions
+    return find_cleanup_suggestions()
+
+
+@router.get("/context-cleanup", response_model=list[CleanupSuggestion])
+async def context_cleanup(path: str):
+    from wslsweeper.cleanup import find_context_cleanup_suggestions
+    return find_context_cleanup_suggestions(path)

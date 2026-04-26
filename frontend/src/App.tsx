@@ -4,9 +4,10 @@ import type { ScanEntry, DiskInfo, MountInfo, ScanResponse } from './types';
 import { BreadcrumbBar } from './components/BreadcrumbBar';
 import { TreeMapCanvas } from './components/TreeMapCanvas';
 import { SidebarInfo } from './components/SidebarInfo';
+import { CleanupPanel } from './components/CleanupPanel';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { formatBytes } from './utils/formatBytes';
-import { Trash2, X } from 'lucide-react';
+import { Trash2, X, HardDrive, Sparkles } from 'lucide-react';
 
 export default function App() {
   const [currentPath, setCurrentPath] = useState('/');
@@ -20,8 +21,9 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ entry: ScanEntry; x: number; y: number } | null>(null);
-  const [deleteDialog, setDeleteDialog] = useState<{ entry: ScanEntry; token: string } | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<{ entry: ScanEntry; token: string; needsSudo: boolean } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<'info' | 'cleanup'>('info');
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const cancelScanRef = useRef<(() => void) | null>(null);
@@ -46,7 +48,6 @@ export default function App() {
   }, []);
 
   const loadPath = useCallback((path: string) => {
-    // cancel previous scan
     if (cancelScanRef.current) {
       cancelScanRef.current();
       cancelScanRef.current = null;
@@ -121,17 +122,17 @@ export default function App() {
         alert('无法获取删除令牌');
         return;
       }
-      setDeleteDialog({ entry, token: validation.confirm_token });
+      setDeleteDialog({ entry, token: validation.confirm_token, needsSudo: validation.needs_sudo });
     } catch (e: any) {
       alert('验证失败: ' + e.message);
     }
   }, []);
 
-  const handleDeleteConfirm = useCallback(async () => {
+  const handleDeleteConfirm = useCallback(async (sudoPassword?: string) => {
     if (!deleteDialog) return;
     setDeleting(true);
     try {
-      await deletePath(deleteDialog.entry.path, deleteDialog.token);
+      await deletePath(deleteDialog.entry.path, deleteDialog.token, sudoPassword);
       setDeleteDialog(null);
       loadPath(currentPath);
       getDiskInfo().then(setDisk).catch(() => {});
@@ -204,15 +205,78 @@ export default function App() {
       <BreadcrumbBar path={currentPath} onNavigate={loadPath} />
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <SidebarInfo
-          disk={disk}
-          mounts={mounts}
-          scanResult={scanResult}
-          scanningCount={scanningCount}
-          scannedCount={scannedCount}
-          currentScanningName={currentScanningName}
-          isScanning={isScanning}
-        />
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          background: 'var(--bg-secondary)',
+          borderRight: '1px solid var(--border-color)',
+        }}>
+          <div style={{
+            display: 'flex',
+            borderBottom: '1px solid var(--border-color)',
+          }}>
+            <button
+              onClick={() => setSidebarTab('info')}
+              style={{
+                flex: 1,
+                padding: '10px 0',
+                border: 'none',
+                borderBottom: `2px solid ${sidebarTab === 'info' ? 'var(--accent-blue)' : 'transparent'}`,
+                background: 'transparent',
+                color: sidebarTab === 'info' ? 'var(--text-primary)' : 'var(--text-muted)',
+                fontSize: 12,
+                fontWeight: sidebarTab === 'info' ? 600 : 400,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+                transition: 'all var(--transition)',
+              }}
+            >
+              <HardDrive size={13} />
+              磁盘信息
+            </button>
+            <button
+              onClick={() => setSidebarTab('cleanup')}
+              style={{
+                flex: 1,
+                padding: '10px 0',
+                border: 'none',
+                borderBottom: `2px solid ${sidebarTab === 'cleanup' ? 'var(--accent-green)' : 'transparent'}`,
+                background: 'transparent',
+                color: sidebarTab === 'cleanup' ? 'var(--text-primary)' : 'var(--text-muted)',
+                fontSize: 12,
+                fontWeight: sidebarTab === 'cleanup' ? 600 : 400,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+                transition: 'all var(--transition)',
+              }}
+            >
+              <Sparkles size={13} />
+              智能清理
+            </button>
+          </div>
+
+          {sidebarTab === 'info' && (
+            <SidebarInfo
+              disk={disk}
+              mounts={mounts}
+              scanResult={scanResult}
+              scanningCount={scanningCount}
+              scannedCount={scannedCount}
+              currentScanningName={currentScanningName}
+              isScanning={isScanning}
+            />
+          )}
+          {sidebarTab === 'cleanup' && (
+            <CleanupPanel currentPath={currentPath} onNavigate={loadPath} />
+          )}
+        </div>
+
         <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', background: 'var(--bg-primary)' }}>
           {error && (
             <div style={{
@@ -336,6 +400,7 @@ export default function App() {
         <ConfirmDialog
           message={`即将删除 ${deleteDialog.entry.is_dir ? '目录' : '文件'}: ${deleteDialog.entry.path}`}
           itemName={deleteDialog.entry.name}
+          needsSudo={deleteDialog.needsSudo}
           loading={deleting}
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteDialog(null)}
