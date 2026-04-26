@@ -1,4 +1,5 @@
 # 🧹 wslsweeper
+![alt text](docs/front.png)
 
 WSL2 存储空间清理可视化工具，对标 Windows SpaceSniffer。支持渐进式扫描、TreeMap 可视化、智能清理推荐和安全删除。
 
